@@ -10,7 +10,7 @@ void RegisterKnownProcesses()
         INT role;
     };
 
-    ProcessInfo procs[] = {{L"steam.exe", 1}, {L"steamservice.exe", 2}, {L"cs2.exe", 3}};
+    ProcessInfo procs[] = {{L"steam.exe", 1}, {L"steamservice.exe", 2}, {L"dota2.exe", 3}};
 
     for (const auto &proc : procs)
     {
@@ -40,7 +40,7 @@ void UnregisterKnownProcesses()
         INT role;
     };
 
-    ProcessInfo procs[] = {{L"steam.exe", 1}, {L"steamservice.exe", 2}, {L"cs2.exe", 3}};
+    ProcessInfo procs[] = {{L"steam.exe", 1}, {L"steamservice.exe", 2}, {L"dota2.exe", 3}};
 
     std::wcout << L"[*] Unregistering known processes from driver..." << std::endl;
     for (const auto &proc : procs)
@@ -55,10 +55,10 @@ void UnregisterKnownProcesses()
 
 int handleTest()
 {
-    ULONG processId = Utils::GetProcessIdByName(L"cs2.exe");
+    ULONG processId = Utils::GetProcessIdByName(L"dota2.exe");
     if (processId == -1)
     {
-        std::wcerr << L"Error: cs2.exe not found!" << std::endl;
+        std::wcerr << L"Error: dota2.exe not found!" << std::endl;
         return EXIT_FAILURE;
     }
 

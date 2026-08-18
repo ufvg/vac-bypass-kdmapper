@@ -6,7 +6,7 @@
 # User-specific files
 *.rsuser
 *.suo
-*.user
+# *.user  # Include project settings
 *.userosscache
 *.sln.docstates
 

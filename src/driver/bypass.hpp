@@ -1,12 +1,17 @@
-/******************************************************************************
 #pragma once
 
 namespace Bypass
 {
 static const wchar_t *g_BackupModulesList[] = {
-    L"\\bin\\win64\\client.dll",      L"\\bin\\win64\\engine.dll",           L"\\bin\\win64\\materialsystem2.dll",
-    L"\\bin\\win64\\inputsystem.dll", L"\\bin\\win64\\rendersystemdx11.dll", L"\\bin\\win64\\rendersystemvulkan.dll",
-    L"\\bin\\win64\\inputsystem.dll", L"\\bin\\win64\\scenesystem.dll"};
+    L"client.dll",           
+    L"steam_api64.dll",      
+    L"engine2.dll",          // Core Source 2 engine
+    L"server.dll",           // Game logic
+    L"materialsystem2.dll",  // Used by illusion detector for materials
+    L"scenesystem.dll",      // Used by illusion detector for scene objects
+    L"rendersystemdx11.dll", // Rendering
+    L"tier0.dll"             // Core Source 2 utilities
+};
 
 typedef struct _GAME_MODULE_ENTRY
 {
