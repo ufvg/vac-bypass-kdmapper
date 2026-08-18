@@ -1,25 +1,16 @@
-/******************************************************************************
- * Copyright (c) [2024] [Ricardo Carvalho (@crvvdev)]
- * All rights reserved.
- *
- * This software is the confidential and proprietary information of
- * Ricardo Carvalho (@crvvdev). You shall not disclose such Confidential
- * Information and shall use it only in accordance with the terms of the
- * license agreement you entered into with Ricardo Carvalho.
- ******************************************************************************/
 #include "includes.hpp"
 
 namespace Comms
 {
+
 typedef struct _INJECT_IMAGE_CONTEXT
 {
-    WORK_QUEUE_ITEM WorkItem;
     PEPROCESS Process;
     PVOID ImageBase;
     ULONG ImageSize;
     NTSTATUS Status;
     KEVENT Event;
-
+    WORK_QUEUE_ITEM WorkItem;
 } INJECT_IMAGE_CONTEXT, *PINJECT_IMAGE_CONTEXT;
 
 static void InjectImageWorkerRoutine(_In_ PVOID param)
@@ -34,7 +25,7 @@ static void InjectImageWorkerRoutine(_In_ PVOID param)
     context->Status = Inject::AttachAndInject(context->Process, context->ImageBase, context->ImageSize);
 
     KeSetEvent(&context->Event, IO_NO_INCREMENT, FALSE);
-};
+}
 
 NTSTATUS HandleIoctl(_In_ PVOID data, _In_ ULONG dataSize)
 {
@@ -43,7 +34,7 @@ NTSTATUS HandleIoctl(_In_ PVOID data, _In_ ULONG dataSize)
 
     // Communication request handlers
     //
-    auto HandleDisableBypass = [](_In_ const PDRIVER_REQUEST_DISABLE_BYPASS request) -> NTSTATUS {
+    auto HandleDisableBypass = [](PDRIVER_REQUEST_DISABLE_BYPASS request) -> NTSTATUS {
         NTSTATUS status;
         __try
         {
@@ -61,7 +52,7 @@ NTSTATUS HandleIoctl(_In_ PVOID data, _In_ ULONG dataSize)
         return STATUS_SUCCESS;
     };
 
-    auto HandleEnableBypass = [](_In_ const PDRIVER_REQUEST_ENABLE_BYPASS request) -> NTSTATUS {
+    auto HandleEnableBypass = [](PDRIVER_REQUEST_ENABLE_BYPASS request) -> NTSTATUS {
         NTSTATUS status;
         __try
         {
@@ -79,19 +70,61 @@ NTSTATUS HandleIoctl(_In_ PVOID data, _In_ ULONG dataSize)
         return STATUS_SUCCESS;
     };
 
-
-
-
-
-
-
-
-
-
-
-
-    auto HandleInject = [](_In_ const PDRIVER_REQUEST_INJECT request) -> NTSTATUS {
+    auto HandleRegisterProcess = [](PDRIVER_REQUEST_REGISTER_PROCESS request) -> NTSTATUS {
         NTSTATUS status = STATUS_UNSUCCESSFUL;
+
+        __try
+        {
+            if (request->Add)
+            {
+                switch (request->Role)
+                {
+                case 1: // Steam
+                    status = Processes::AddProcessSteam(request->ProcessId);
+                    break;
+                case 2: // SteamService
+                    status = Processes::AddProcessSteamService(request->ProcessId);
+                    break;
+                case 3: // Game
+                    status = Processes::AddProcessGame(request->ProcessId);
+                    break;
+                default:
+                    status = STATUS_INVALID_PARAMETER;
+                    break;
+                }
+
+                // If the process is already registered, treat it as success
+                if (status == STATUS_ALREADY_REGISTERED)
+                {
+                    status = STATUS_SUCCESS;
+                }
+            }
+            else
+            {
+                if (Processes::IsProcessInList(request->ProcessId))
+                {
+                    Bypass::EraseGameModules(request->ProcessId);
+                    Bypass::EraseProtectedModules(request->ProcessId);
+                    (void)Processes::RemoveProcess(request->ProcessId);
+                }
+                status = STATUS_SUCCESS;
+            }
+
+            request->SetStatus(status);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            status = GetExceptionCode();
+        }
+
+        return status;
+    };
+
+    auto HandleInject = [](PDRIVER_REQUEST_INJECT request) -> NTSTATUS {
+        NTSTATUS status = STATUS_UNSUCCESSFUL;
+        PVOID imageBase = nullptr;
+        PEPROCESS process = nullptr;
+        PINJECT_IMAGE_CONTEXT imageContext = nullptr;
 
         if (request->ImageSize <= 0)
         {
@@ -107,54 +140,42 @@ NTSTATUS HandleIoctl(_In_ PVOID data, _In_ ULONG dataSize)
 
             // Store image in kernel memory
             //
-            auto imageBase = Memory::AllocNonPaged(request->ImageSize, Memory::TAG_DEFAULT);
+            imageBase = Memory::AllocNonPaged(request->ImageSize, Memory::TAG_DEFAULT);
             if (!imageBase)
             {
                 WPP_PRINT(TRACE_LEVEL_ERROR, GENERAL, "Failed to allocate %u bytes for image!", request->ImageSize);
-
                 status = STATUS_INSUFFICIENT_RESOURCES;
                 goto Exit;
             }
 
             RtlCopyMemory(imageBase, request->ImageBase, request->ImageSize);
 
-            PEPROCESS process = Processes::GetGameProcess();
+            process = Processes::GetGameProcess();
             if (!process)
             {
                 WPP_PRINT(TRACE_LEVEL_ERROR, GENERAL, "Failed to get game process!");
-
                 status = STATUS_UNSUCCESSFUL;
                 goto Exit;
             }
 
-            SCOPE_EXIT
-            {
-                ObDereferenceObject(process);
-            };
-
             // Build inject image context
             //
-            auto imageContext = reinterpret_cast<PINJECT_IMAGE_CONTEXT>(
+            imageContext = reinterpret_cast<PINJECT_IMAGE_CONTEXT>(
                 Memory::AllocNonPaged(sizeof(INJECT_IMAGE_CONTEXT), Memory::TAG_DEFAULT));
             if (!imageContext)
             {
                 WPP_PRINT(TRACE_LEVEL_ERROR, GENERAL, "Failed to allocate %u bytes for image context!",
                           sizeof(INJECT_IMAGE_CONTEXT));
-
                 status = STATUS_INSUFFICIENT_RESOURCES;
                 goto Exit;
             }
-
-            SCOPE_EXIT
-            {
-                Memory::FreePool(imageContext);
-            };
 
             // We will be issuing a worker item to do the job.
             //
             imageContext->Process = process;
             imageContext->ImageBase = imageBase;
             imageContext->ImageSize = request->ImageSize;
+            imageContext->Status = STATUS_UNSUCCESSFUL;
             KeInitializeEvent(&imageContext->Event, NotificationEvent, FALSE);
             ExInitializeWorkItem(&imageContext->WorkItem, &InjectImageWorkerRoutine, imageContext);
             ExQueueWorkItem(&imageContext->WorkItem, DelayedWorkQueue);
@@ -174,22 +195,31 @@ NTSTATUS HandleIoctl(_In_ PVOID data, _In_ ULONG dataSize)
         {
             status = GetExceptionCode();
         }
+
     Exit:
+        if (imageContext)
+        {
+            Memory::FreePool(imageContext);
+        }
+
+        if (process)
+        {
+            ObDereferenceObject(process);
+        }
+
         request->SetStatus(status);
         return status;
     };
 
-    // Check if size is expected
-    //
-    if (dataSize < sizeof(DRIVER_REQUEST_HEADER))
-    {
-        return STATUS_INFO_LENGTH_MISMATCH;
-    }
-
-    NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
-
     // Check if request is valid and process it
     //
+    NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
+
+    if (dataSize < sizeof(DRIVER_REQUEST_HEADER))
+    {
+        return status;
+    }
+
     const auto requestData = static_cast<PDRIVER_REQUEST_HEADER>(data);
     if (!requestData->IsValid())
     {
@@ -215,6 +245,14 @@ NTSTATUS HandleIoctl(_In_ PVOID data, _In_ ULONG dataSize)
         }
         return HandleEnableBypass(reinterpret_cast<PDRIVER_REQUEST_ENABLE_BYPASS>(data));
     }
+    case EDriverCommunicationRequest::RegisterProcess: {
+        if (dataSize < sizeof(DRIVER_REQUEST_REGISTER_PROCESS))
+        {
+            status = STATUS_INVALID_PARAMETER_1;
+            break;
+        }
+        return HandleRegisterProcess(reinterpret_cast<PDRIVER_REQUEST_REGISTER_PROCESS>(data));
+    }
     case EDriverCommunicationRequest::InjectDll: {
         if (dataSize < sizeof(DRIVER_REQUEST_INJECT))
         {
@@ -224,6 +262,8 @@ NTSTATUS HandleIoctl(_In_ PVOID data, _In_ ULONG dataSize)
         return HandleInject(reinterpret_cast<PDRIVER_REQUEST_INJECT>(data));
     }
     }
+
     return status;
 }
-}; // namespace Comms
+
+} // namespace Comms
