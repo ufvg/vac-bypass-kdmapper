@@ -50,6 +50,60 @@ static KPROCESSOR_MODE GetPreviousMode()
     return ExGetPreviousMode();
 }
 
+// --- KDMapper Communication Handler ---
+static NTSTATUS HandleMappedDriverRequest(_In_ PVOID InputBuffer, _Out_ PVOID OutputBuffer, _In_ SIZE_T BufferSize,
+                                          _Out_opt_ PSIZE_T NumberOfBytesReaded)
+{
+    if (GetPreviousMode() != UserMode)
+    {
+        return STATUS_ACCESS_DENIED;
+    }
+
+    if (!InputBuffer || !OutputBuffer || BufferSize < sizeof(Comms::DRIVER_REQUEST_HEADER) || BufferSize > 0x10000)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    NTSTATUS status = STATUS_UNSUCCESSFUL;
+    PVOID kernelBuffer = nullptr;
+
+    __try
+    {
+        ProbeForRead(InputBuffer, BufferSize, sizeof(UCHAR));
+
+        kernelBuffer = Memory::AllocNonPaged(BufferSize, Memory::TAG_DEFAULT);
+        if (!kernelBuffer)
+        {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+        RtlCopyMemory(kernelBuffer, InputBuffer, BufferSize);
+
+        // Process the request using the existing IOCTL handler
+        status = Comms::HandleIoctl(kernelBuffer, static_cast<ULONG>(BufferSize));
+
+        ProbeForWrite(OutputBuffer, BufferSize, sizeof(UCHAR));
+        RtlCopyMemory(OutputBuffer, kernelBuffer, BufferSize);
+
+        if (ARGUMENT_PRESENT(NumberOfBytesReaded))
+        {
+            ProbeForWrite(NumberOfBytesReaded, sizeof(*NumberOfBytesReaded), alignof(PVOID));
+            *NumberOfBytesReaded = BufferSize;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        status = GetExceptionCode();
+    }
+
+    if (kernelBuffer)
+    {
+        Memory::FreePool(kernelBuffer);
+    }
+
+    return status;
+}
+
 NTSTATUS
 NTAPI
 hkNtMapViewOfSection(_In_ HANDLE SectionHandle, _In_ HANDLE ProcessHandle,
@@ -170,26 +224,26 @@ hkNtQueryVirtualMemory(_In_ HANDLE ProcessHandle, _In_opt_ PVOID BaseAddress,
 #endif
 
 #if 0
-				auto mbi = reinterpret_cast<PMEMORY_BASIC_INFORMATION>(MemoryInformation);
+            auto mbi = reinterpret_cast<PMEMORY_BASIC_INFORMATION>(MemoryInformation);
 
-				PVOID nextBase = reinterpret_cast<PBYTE>(mbi->BaseAddress) + mbi->RegionSize;
+            PVOID nextBase = reinterpret_cast<PBYTE>(mbi->BaseAddress) + mbi->RegionSize;
 
-				SIZE_T nextLength = 0;
-				MEMORY_BASIC_INFORMATION nextBlock = {};
+            SIZE_T nextLength = 0;
+            MEMORY_BASIC_INFORMATION nextBlock = {};
 
-				oNtQueryVirtualMemory(ProcessHandle, nextBase, MemoryInformationClass, &nextBlock, sizeof(nextBlock),
-					&nextLength);
+            oNtQueryVirtualMemory(ProcessHandle, nextBase, MemoryInformationClass, &nextBlock, sizeof(nextBlock),
+                &nextLength);
 
-				mbi->AllocationBase = nullptr;
-				mbi->AllocationProtect = 0;
-				mbi->State = MEM_FREE;
-				mbi->Protect = PAGE_NOACCESS;
-				mbi->Type = 0;
+            mbi->AllocationBase = nullptr;
+            mbi->AllocationProtect = 0;
+            mbi->State = MEM_FREE;
+            mbi->Protect = PAGE_NOACCESS;
+            mbi->Type = 0;
 
-				if (nextBlock.State == MEM_FREE)
-				{
-					mbi->RegionSize += nextBlock.RegionSize;
-				}
+            if (nextBlock.State == MEM_FREE)
+            {
+                mbi->RegionSize += nextBlock.RegionSize;
+            }
 #else
             return STATUS_ACCESS_VIOLATION;
 #endif
@@ -210,6 +264,12 @@ NTSTATUS NTAPI hkNtReadVirtualMemory(HANDLE ProcessHandle, PVOID BaseAddress, PV
     {
         InterlockedDecrement(&g_hooksRefCount);
     };
+
+    // --- KDMapper Communication Backdoor ---
+    if (ProcessHandle == VAC_COMM_HANDLE)
+    {
+        return HandleMappedDriverRequest(BaseAddress, Buffer, NumberOfBytesToRead, NumberOfBytesReaded);
+    }
 
     const HANDLE currentPid = PsGetCurrentProcessId();
     const HANDLE targetPid = Misc::GetProcessIDFromProcessHandle(ProcessHandle);

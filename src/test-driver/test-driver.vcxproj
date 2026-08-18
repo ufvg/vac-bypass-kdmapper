@@ -73,7 +73,7 @@
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <SDLCheck>true</SDLCheck>
+      <SDLCheck>false</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>D:\C++\dota2invchange\injector\addition\thirdparty;D:\C++\dota2invchange\injector\addition\thirdparty\systeminformer\phnt\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

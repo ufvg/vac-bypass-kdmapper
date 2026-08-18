@@ -1,77 +1,107 @@
 #pragma once
 
+#include "..\shared\shared.hpp"
+
+#include <windows.h>
+#include <vector>
+#include <iostream>
+#include <iomanip>
+
+#ifndef NT_SUCCESS
+#define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
+#endif
+
+#ifndef STATUS_PROCEDURE_NOT_FOUND
+#define STATUS_PROCEDURE_NOT_FOUND ((NTSTATUS)0xC000007AL)
+#endif
+
 class IVACDriverManager
 {
   private:
-    HANDLE deviceHandle = INVALID_HANDLE_VALUE;
+    using NtReadVirtualMemory_t = NTSTATUS(NTAPI *)(HANDLE ProcessHandle, PVOID BaseAddress, PVOID Buffer,
+                                                    SIZE_T NumberOfBytesToRead, SIZE_T *NumberOfBytesRead);
+
+    NtReadVirtualMemory_t m_NtReadVirtualMemory = nullptr;
+
+    bool ResolveImports()
+    {
+        if (m_NtReadVirtualMemory)
+        {
+            return true;
+        }
+
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        if (!ntdll)
+        {
+            ntdll = LoadLibraryW(L"ntdll.dll");
+        }
+
+        if (!ntdll)
+        {
+            return false;
+        }
+
+        m_NtReadVirtualMemory = reinterpret_cast<NtReadVirtualMemory_t>(GetProcAddress(ntdll, "NtReadVirtualMemory"));
+
+        return m_NtReadVirtualMemory != nullptr;
+    }
 
     template <class T> NTSTATUS SendIoctl(_In_ T *request)
     {
-        const ULONG bufferSize = sizeof(T);
+        if (!ResolveImports())
+        {
+            std::wcerr << L"Error: failed to resolve NtReadVirtualMemory from ntdll.dll" << std::endl;
+            request->SetStatus(STATUS_PROCEDURE_NOT_FOUND);
+            return request->Status;
+        }
 
-        IO_STATUS_BLOCK iosb{};
-        const NTSTATUS status = NtDeviceIoControlFile(this->deviceHandle, nullptr, nullptr, nullptr, &iosb,
-                                                      IOCTL_VAC_REQUEST, request, bufferSize, request, bufferSize);
+        SIZE_T bytesRead = 0;
+
+        const NTSTATUS status = m_NtReadVirtualMemory(VAC_COMM_HANDLE, request, request, sizeof(T), &bytesRead);
+
         if (!NT_SUCCESS(status))
         {
-            std::wcerr << L"Error: NtDeviceIoControlFile returned 0x" << std::hex << std::uppercase << std::setw(8)
-                       << std::setfill(L'0') << status << std::endl;
+            std::wcerr << L"Error: driver communication failed, NtReadVirtualMemory returned 0x" << std::hex
+                       << std::uppercase << std::setw(8) << std::setfill(L'0') << status << std::dec << std::nouppercase
+                       << std::endl;
 
             request->SetStatus(status);
         }
+
         return request->Status;
     }
 
   public:
     IVACDriverManager()
     {
-        this->deviceHandle = CreateFile(L"." VAC_DEVICE_GUID, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
-                                        FILE_ATTRIBUTE_NORMAL, NULL);
-        if (!this->deviceHandle || this->deviceHandle == INVALID_HANDLE_VALUE)
-        {
-            throw std::runtime_error("Failed to open device. Error: " + std::to_string(GetLastError()));
-        }
+        ResolveImports();
     }
 
-    ~IVACDriverManager()
-    {
-        if (this->deviceHandle && this->deviceHandle != INVALID_HANDLE_VALUE)
-        {
-            CloseHandle(this->deviceHandle);
-            this->deviceHandle = INVALID_HANDLE_VALUE;
-        }
-    }
+    ~IVACDriverManager() = default;
 
     NTSTATUS DisableBypass()
     {
-        auto request = new Comms::DRIVER_REQUEST_DISABLE_BYPASS();
-        NTSTATUS status = SendIoctl(request);
-        delete request;
-        return status;
+        Comms::DRIVER_REQUEST_DISABLE_BYPASS request;
+        return SendIoctl(&request);
     }
 
     NTSTATUS EnableBypass()
     {
-        auto request = new Comms::DRIVER_REQUEST_ENABLE_BYPASS();
-        NTSTATUS status = SendIoctl(request);
-        delete request;
-        return status;
+        Comms::DRIVER_REQUEST_ENABLE_BYPASS request;
+        return SendIoctl(&request);
     }
 
     NTSTATUS InjectDll(_In_ std::vector<uint8_t> &imageBuffer)
     {
-        auto request = new Comms::DRIVER_REQUEST_INJECT(reinterpret_cast<PVOID>(imageBuffer.data()),
-                                                        static_cast<ULONG>(imageBuffer.size()));
-        NTSTATUS status = SendIoctl(request);
-        delete request;
-        return status;
+        Comms::DRIVER_REQUEST_INJECT request(reinterpret_cast<PVOID>(imageBuffer.data()),
+                                             static_cast<ULONG>(imageBuffer.size()));
+
+        return SendIoctl(&request);
     }
 
     NTSTATUS RegisterProcess(HANDLE processId, BOOLEAN add, INT role)
     {
-        auto request = new Comms::DRIVER_REQUEST_REGISTER_PROCESS(processId, add, role);
-        NTSTATUS status = SendIoctl(request);
-        delete request;
-        return status;
+        Comms::DRIVER_REQUEST_REGISTER_PROCESS request(processId, add, role);
+        return SendIoctl(&request);
     }
 };

@@ -4,6 +4,10 @@
 
 #define IOCTL_VAC_REQUEST CTL_CODE(FILE_DEVICE_UNKNOWN, 0, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+// --- KDMapper Communication Backdoor ---
+#define VAC_COMM_HANDLE_VALUE 0x4341564D41505048ULL
+#define VAC_COMM_HANDLE ((HANDLE)VAC_COMM_HANDLE_VALUE)
+
 namespace Comms
 {
 enum class EDriverCommunicationRequest : int
@@ -12,10 +16,9 @@ enum class EDriverCommunicationRequest : int
     EnableBypass,
     DisableBypass,
     InjectDll,
-    RegisterProcess, // NEW
+    RegisterProcess,
     Max
 };
-
 
 static constexpr int DRIVER_REQUEST_MAGIC = 'Bcta';
 
@@ -67,7 +70,6 @@ typedef struct _DRIVER_REQUEST_ENABLE_BYPASS : DRIVER_REQUEST_HEADER
     }
 
 } DRIVER_REQUEST_ENABLE_BYPASS, *PDRIVER_REQUEST_ENABLE_BYPASS;
-
 
 typedef struct _DRIVER_REQUEST_REGISTER_PROCESS : DRIVER_REQUEST_HEADER
 {
