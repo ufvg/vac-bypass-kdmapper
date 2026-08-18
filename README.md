@@ -1,9 +1,5 @@
 # VAC kernel-mode bypass
 
-Fully working VAC kernel-mode bypass, it makes use of either SSDT hooks or Infinityhook to intercept VAC syscalls and ultimately spoof the results in order to bypass the memory integrity checks.
-Using this bypass you're able to load unsigned DLL into the game memory space and perform patches on the game modules as desired, it also makes sure the DLL will never be scanned by their signature/heuristic checks.
-
-
 # How it works
 
 VAC is loaded in *SteamService.exe* process (*Steam.exe* will be the process loading it if being ran as administrator instead). 
@@ -52,31 +48,3 @@ Options:
         /disable  Disable bypass
         /enable   Enable bypass
 ```
-
-The description is straightforward, i provide this simple executable which can be used to control the bypass or to inject a DLL in game (using manual map).
-
-### Load kernel driver
-
-Compile the project and install the kernel-driver, i suggest setting Windows in Test mode so the driver can be loaded without having to sign it, but you can sign it youself with your certificate if you want.
-
-It's worth mentioning that SSDT hook method is not PG compatible, thus using something like [EfiGuard](https://github.com/Mattiwatti/EfiGuard) is encouraged, since it disables PG completely and also lets you load any driver by disabling DSE.
-
-For Infinityhook method nothing has to be done for PG, just load driver and it's ready to go.
-
-## WPP Tracing
-
-This project makes use of WPP tracing for debug tracing, if you wish to see debug output you have to setup a tracing session on your machine.
-
-```
-tracelog.exe -addautologger VAC -sessionguid #{SESSION_GUID} -flag 0xFF -level 6 -guid #{BBB7063B-B267-4728-A95D-304A8E4E6A89} -kd
-```
-
-## Final regards
-
-This project is not meant to be used for newbies, i assume you have at least some knowledge about anti-cheats and malware in general to understand how it works, it's more of a proof-of-concept and a personal project to show my skills.
-You're more than welcome to take a look at the source code and contribute to this project!
-
-## Credits
-
-https://github.com/Oxygen1a1/InfinityHookClass
-https://github.com/everdox/InfinityHook
