@@ -200,7 +200,6 @@
     <Link>
       <AdditionalLibraryDirectories>..\..\thirdparty\zydis\msvc\bin\ReleaseX64Kernel;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>cng.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalOptions>/INTEGRITYCHECK %(AdditionalOptions)</AdditionalOptions>
       <EntryPointSymbol>DriverEntry</EntryPointSymbol>
     </Link>
     <DriverSign>
