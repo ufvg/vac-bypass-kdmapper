@@ -25,9 +25,6 @@
     <ClCompile Include="bypass.cpp">
       <Filter>Source Files\interfaces</Filter>
     </ClCompile>
-    <ClCompile Include="callbacks.cpp">
-      <Filter>Source Files\interfaces</Filter>
-    </ClCompile>
     <ClCompile Include="dynamic.cpp">
       <Filter>Source Files\interfaces</Filter>
     </ClCompile>
@@ -85,9 +82,6 @@
       <Filter>Header Files\third-party\fnv1a</Filter>
     </ClInclude>
     <ClInclude Include="dynamic.hpp">
-      <Filter>Header Files\interfaces</Filter>
-    </ClInclude>
-    <ClInclude Include="callbacks.hpp">
       <Filter>Header Files\interfaces</Filter>
     </ClInclude>
     <ClInclude Include="bypass.hpp">

@@ -25,30 +25,53 @@ class IVACDriverManager
   public:
     IVACDriverManager()
     {
-        this->deviceHandle = CreateFile(L"\\\\.\\" VAC_DEVICE_GUID, GENERIC_READ | GENERIC_WRITE, 0, NULL,
-                                        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        this->deviceHandle = CreateFile(L"." VAC_DEVICE_GUID, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
+                                        FILE_ATTRIBUTE_NORMAL, NULL);
         if (!this->deviceHandle || this->deviceHandle == INVALID_HANDLE_VALUE)
         {
             throw std::runtime_error("Failed to open device. Error: " + std::to_string(GetLastError()));
         }
     }
 
+    ~IVACDriverManager()
+    {
+        if (this->deviceHandle && this->deviceHandle != INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(this->deviceHandle);
+            this->deviceHandle = INVALID_HANDLE_VALUE;
+        }
+    }
+
     NTSTATUS DisableBypass()
     {
         auto request = new Comms::DRIVER_REQUEST_DISABLE_BYPASS();
-        return SendIoctl(request);
+        NTSTATUS status = SendIoctl(request);
+        delete request;
+        return status;
     }
 
     NTSTATUS EnableBypass()
     {
         auto request = new Comms::DRIVER_REQUEST_ENABLE_BYPASS();
-        return SendIoctl(request);
+        NTSTATUS status = SendIoctl(request);
+        delete request;
+        return status;
     }
 
     NTSTATUS InjectDll(_In_ std::vector<uint8_t> &imageBuffer)
     {
         auto request = new Comms::DRIVER_REQUEST_INJECT(reinterpret_cast<PVOID>(imageBuffer.data()),
                                                         static_cast<ULONG>(imageBuffer.size()));
-        return SendIoctl(request);
+        NTSTATUS status = SendIoctl(request);
+        delete request;
+        return status;
+    }
+
+    NTSTATUS RegisterProcess(HANDLE processId, BOOLEAN add, INT role)
+    {
+        auto request = new Comms::DRIVER_REQUEST_REGISTER_PROCESS(processId, add, role);
+        NTSTATUS status = SendIoctl(request);
+        delete request;
+        return status;
     }
 };

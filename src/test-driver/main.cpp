@@ -2,6 +2,57 @@
 
 std::unique_ptr<IVACDriverManager> g_VACDriverManager = nullptr;
 
+void RegisterKnownProcesses()
+{
+    struct ProcessInfo
+    {
+        const wchar_t *name;
+        INT role;
+    };
+
+    ProcessInfo procs[] = {{L"steam.exe", 1}, {L"steamservice.exe", 2}, {L"cs2.exe", 3}};
+
+    for (const auto &proc : procs)
+    {
+        ULONG pid = Utils::GetProcessIdByName(proc.name);
+        if (pid != (ULONG)-1)
+        {
+            std::wcout << L"[+] Found " << proc.name << L" (PID: " << std::dec << pid << L"), registering with driver."
+                       << std::endl;
+            NTSTATUS status =
+                g_VACDriverManager->RegisterProcess(reinterpret_cast<HANDLE>((ULONG_PTR)pid), TRUE, proc.role);
+
+            // STATUS_ALREADY_REGISTERED is not a critical failure
+            if (!NT_SUCCESS(status) && status != STATUS_ALREADY_REGISTERED)
+            {
+                std::wcerr << L"Error: Failed to register " << proc.name << L", status 0x" << std::hex << std::uppercase
+                           << std::setw(8) << std::setfill(L'0') << status << std::endl;
+            }
+        }
+    }
+}
+
+void UnregisterKnownProcesses()
+{
+    struct ProcessInfo
+    {
+        const wchar_t *name;
+        INT role;
+    };
+
+    ProcessInfo procs[] = {{L"steam.exe", 1}, {L"steamservice.exe", 2}, {L"cs2.exe", 3}};
+
+    std::wcout << L"[*] Unregistering known processes from driver..." << std::endl;
+    for (const auto &proc : procs)
+    {
+        ULONG pid = Utils::GetProcessIdByName(proc.name);
+        if (pid != (ULONG)-1)
+        {
+            g_VACDriverManager->RegisterProcess(reinterpret_cast<HANDLE>((ULONG_PTR)pid), FALSE, proc.role);
+        }
+    }
+}
+
 int handleTest()
 {
     ULONG processId = Utils::GetProcessIdByName(L"cs2.exe");
@@ -105,8 +156,10 @@ int handleTest()
 int handleBypass(const std::vector<std::wstring> &args)
 {
     NTSTATUS status;
+    bool disableCalled = false;
 
-    for (size_t i = 3; i < args.size(); ++i)
+    // FIX: Original loop started at 3, skipping the first argument. Changed to 2.
+    for (size_t i = 2; i < args.size(); ++i)
     {
         if (args[i].find(L"/enable") != std::string::npos)
         {
@@ -122,6 +175,7 @@ int handleBypass(const std::vector<std::wstring> &args)
         }
         else if (args[i].find(L"/disable") != std::string::npos)
         {
+            disableCalled = true;
             status = g_VACDriverManager->DisableBypass();
             if (!NT_SUCCESS(status))
             {
@@ -137,6 +191,12 @@ int handleBypass(const std::vector<std::wstring> &args)
             std::wcerr << L"Error: Unrecognized command: " << args[i] << std::endl;
             return EXIT_FAILURE;
         }
+    }
+
+    // When disabling the bypass, unregister processes to trigger the driver's internal cleanup
+    if (disableCalled)
+    {
+        UnregisterKnownProcesses();
     }
     return EXIT_SUCCESS;
 }
@@ -222,6 +282,16 @@ Options:
     {
         std::cerr << "Error: " << e.what() << std::endl;
         return EXIT_FAILURE;
+    }
+
+    bool isDisableBypass =
+        (operation == L"bypass" && args.size() >= 3 && args[2].find(L"/disable") != std::string::npos);
+
+    // Register known processes with the driver so it knows which PIDs to hook/spoof for.
+    // This replaces the kernel-mode PsSetCreateProcessNotifyRoutineEx callback.
+    if (!isDisableBypass)
+    {
+        RegisterKnownProcesses();
     }
 
     // Handle operations

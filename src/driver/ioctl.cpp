@@ -79,6 +79,17 @@ NTSTATUS HandleIoctl(_In_ PVOID data, _In_ ULONG dataSize)
         return STATUS_SUCCESS;
     };
 
+
+
+
+
+
+
+
+
+
+
+
     auto HandleInject = [](_In_ const PDRIVER_REQUEST_INJECT request) -> NTSTATUS {
         NTSTATUS status = STATUS_UNSUCCESSFUL;
 

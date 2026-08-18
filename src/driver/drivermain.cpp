@@ -12,12 +12,17 @@
 
 #pragma section(".INIT", read, write, discard)
 
-#define DRIVER_DEVICE_NAME L"\\Device\\" VAC_DEVICE_GUID
-#define DRIVER_SYMBOLIC_NAME L"\\DosDevices\\" VAC_DEVICE_GUID
+#define DRIVER_DEVICE_NAME L"Device" VAC_DEVICE_GUID
+#define DRIVER_SYMBOLIC_NAME L"DosDevices" VAC_DEVICE_GUID
 
 UNICODE_STRING g_deviceName = RTL_CONSTANT_STRING(DRIVER_DEVICE_NAME);
 UNICODE_STRING g_symbolicLinkName = RTL_CONSTANT_STRING(DRIVER_SYMBOLIC_NAME);
 PDEVICE_OBJECT g_deviceObject = nullptr;
+
+// True when the driver was manually mapped (e.g. kdmapper) instead of being
+// loaded through the service control manager. kdmapper calls the entry point
+// with DriverObject == NULL and RegistryPath == NULL.
+static bool g_mappedLoad = false;
 
 #if 0
 extern "C" int abs(int v)
@@ -33,7 +38,6 @@ static void DeinitializeDriver()
     UNITIALIZE_INTERFACE(Hooks);
     UNITIALIZE_INTERFACE(SyscallHook);
     UNITIALIZE_INTERFACE(SyscallTable);
-    UNITIALIZE_INTERFACE(Callbacks);
     UNITIALIZE_INTERFACE(Bypass);
     UNITIALIZE_INTERFACE(Processes);
     UNITIALIZE_INTERFACE(Threads);
@@ -41,15 +45,18 @@ static void DeinitializeDriver()
 
 #undef UNITIALIZE_INTERFACE
 
+    // Device/symlink only exist on the normal (non-mapped) load path.
     if (g_deviceObject)
     {
         IoDeleteDevice(g_deviceObject);
         g_deviceObject = nullptr;
+        IoDeleteSymbolicLink(&g_symbolicLinkName);
     }
 
-    IoDeleteSymbolicLink(&g_symbolicLinkName);
-
-    WPP_PRINT(TRACE_LEVEL_INFORMATION, GENERAL, "Driver de-initialized!");
+    if (!g_mappedLoad)
+    {
+        WPP_PRINT(TRACE_LEVEL_INFORMATION, GENERAL, "Driver de-initialized!");
+    }
 }
 
 void DriverUnload(_Inout_ PDRIVER_OBJECT DriverObject)
@@ -109,32 +116,42 @@ NTSTATUS DispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp)
 #pragma code_seg("INIT")
 EXTERN_C
 NTSTATUS
-DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
+DriverEntry(_In_opt_ PDRIVER_OBJECT DriverObject, _In_opt_ PUNICODE_STRING RegistryPath)
 {
     UNREFERENCED_PARAMETER(RegistryPath);
 
-    NTSTATUS status;
+    NTSTATUS status = STATUS_SUCCESS;
 
-    WPP_INIT_TRACING(DriverObject, RegistryPath);
+    // kdmapper manually maps the image and calls this entry point with
+    // DriverObject == NULL and RegistryPath == NULL (unless --PassAllocationPtr
+    // is used, in which case the first parameter is the allocation base).
+    // Any use of DriverObject (IoCreateDevice, MajorFunction, WPP_INIT_TRACING,
+    // DriverUnload) would crash, so gate it behind the load-mode check.
+    g_mappedLoad = (DriverObject == nullptr);
 
-    status = IoCreateDevice(DriverObject, 0, &g_deviceName, FILE_DEVICE_UNKNOWN, 0, FALSE, &g_deviceObject);
-    if (!NT_SUCCESS(status))
+    if (!g_mappedLoad)
     {
-        WPP_PRINT(TRACE_LEVEL_ERROR, GENERAL, "IoCreateDevice failed %!STATUS!", status);
-        goto Exit;
-    }
+        WPP_INIT_TRACING(DriverObject, RegistryPath);
 
-    status = IoCreateSymbolicLink(&g_symbolicLinkName, &g_deviceName);
-    if (!NT_SUCCESS(status))
-    {
-        WPP_PRINT(TRACE_LEVEL_ERROR, GENERAL, "IoCreateSymbolicLink failed %!STATUS!", status);
-        goto Exit;
-    }
+        status = IoCreateDevice(DriverObject, 0, &g_deviceName, FILE_DEVICE_UNKNOWN, 0, FALSE, &g_deviceObject);
+        if (!NT_SUCCESS(status))
+        {
+            WPP_PRINT(TRACE_LEVEL_ERROR, GENERAL, "IoCreateDevice failed %!STATUS!", status);
+            goto Exit;
+        }
 
-    DriverObject->DriverUnload = DriverUnload;
-    DriverObject->MajorFunction[IRP_MJ_CREATE] = DispatchCreateClose;
-    DriverObject->MajorFunction[IRP_MJ_CLOSE] = DispatchCreateClose;
-    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DispatchDeviceControl;
+        status = IoCreateSymbolicLink(&g_symbolicLinkName, &g_deviceName);
+        if (!NT_SUCCESS(status))
+        {
+            WPP_PRINT(TRACE_LEVEL_ERROR, GENERAL, "IoCreateSymbolicLink failed %!STATUS!", status);
+            goto Exit;
+        }
+
+        DriverObject->DriverUnload = DriverUnload;
+        DriverObject->MajorFunction[IRP_MJ_CREATE] = DispatchCreateClose;
+        DriverObject->MajorFunction[IRP_MJ_CLOSE] = DispatchCreateClose;
+        DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DispatchDeviceControl;
+    }
 
 #define INIT_INTERFACE_PARAM(name, x)                                                                                  \
     status = name::Initialize(x);                                                                                      \
@@ -156,7 +173,6 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     INIT_INTERFACE(Threads);
     INIT_INTERFACE(Processes);
     INIT_INTERFACE(Bypass);
-    INIT_INTERFACE(Callbacks);
     INIT_INTERFACE(SyscallTable);
     INIT_INTERFACE(Hooks);
     INIT_INTERFACE(SyscallHook);
@@ -168,14 +184,19 @@ Exit:
     if (!NT_SUCCESS(status))
     {
         DeinitializeDriver();
-        WPP_CLEANUP(DriverObject);
+
+        if (!g_mappedLoad)
+        {
+            WPP_CLEANUP(DriverObject);
+        }
 
         status = STATUS_FAILED_DRIVER_ENTRY;
     }
-    else
+    else if (!g_mappedLoad)
     {
         WPP_PRINT(TRACE_LEVEL_INFORMATION, GENERAL, "Driver sucessfully initialized.");
     }
+
     return status;
 }
 #pragma code_seg()

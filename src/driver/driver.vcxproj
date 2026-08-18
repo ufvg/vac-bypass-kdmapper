@@ -237,7 +237,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="bypass.cpp" />
-    <ClCompile Include="callbacks.cpp" />
     <ClCompile Include="hde\hde64.cpp" />
     <ClCompile Include="ioctl.cpp" />
     <ClCompile Include="crc32.cpp" />
@@ -257,7 +256,6 @@
     <ClInclude Include="..\..\ThirdParty\scope_guard\include\scope_guard.hpp" />
     <ClInclude Include="..\shared\shared.hpp" />
     <ClInclude Include="bypass.hpp" />
-    <ClInclude Include="callbacks.hpp" />
     <ClInclude Include="hde\hde64.h" />
     <ClInclude Include="hde\pstdint.h" />
     <ClInclude Include="hde\table64.h" />
