@@ -12,8 +12,10 @@ enum class EDriverCommunicationRequest : int
     EnableBypass,
     DisableBypass,
     InjectDll,
+    RegisterProcess, // NEW
     Max
 };
+
 
 static constexpr int DRIVER_REQUEST_MAGIC = 'Bcta';
 
@@ -65,5 +67,20 @@ typedef struct _DRIVER_REQUEST_ENABLE_BYPASS : DRIVER_REQUEST_HEADER
     }
 
 } DRIVER_REQUEST_ENABLE_BYPASS, *PDRIVER_REQUEST_ENABLE_BYPASS;
+
+
+typedef struct _DRIVER_REQUEST_REGISTER_PROCESS : DRIVER_REQUEST_HEADER
+{
+    HANDLE ProcessId;
+    BOOLEAN Add;
+    INT Role; // 1: Steam, 2: SteamService, 3: Game
+
+    _DRIVER_REQUEST_REGISTER_PROCESS(_In_ HANDLE pid, _In_ BOOLEAN add, _In_ INT role)
+        : ProcessId(pid), Add(add), Role(role)
+    {
+        this->Request = EDriverCommunicationRequest::RegisterProcess;
+    }
+
+} DRIVER_REQUEST_REGISTER_PROCESS, *PDRIVER_REQUEST_REGISTER_PROCESS;
 
 } // namespace Comms
