@@ -26,9 +26,9 @@ static void DeinitializeDriver()
 {
 #define UNITIALIZE_INTERFACE(name) name::Unitialize();
 
-    UNITIALIZE_INTERFACE(Hooks);
-    UNITIALIZE_INTERFACE(SyscallHook);
-    UNITIALIZE_INTERFACE(SyscallTable);
+    //UNITIALIZE_INTERFACE(Hooks);
+    //UNITIALIZE_INTERFACE(SyscallHook);
+    //UNITIALIZE_INTERFACE(SyscallTable);
     UNITIALIZE_INTERFACE(Bypass);
     UNITIALIZE_INTERFACE(Processes);
     UNITIALIZE_INTERFACE(Threads);
@@ -165,8 +165,8 @@ DriverEntry(_In_opt_ PDRIVER_OBJECT DriverObject, _In_opt_ PUNICODE_STRING Regis
     INIT_INTERFACE(Processes);
     INIT_INTERFACE(Bypass);
     INIT_INTERFACE(SyscallTable);
-    INIT_INTERFACE(Hooks);
-    INIT_INTERFACE(SyscallHook);
+    //INIT_INTERFACE(Hooks);
+    //INIT_INTERFACE(SyscallHook);
 
 #undef INIT_INTERFACE_PARAM
 #undef INIT_INTERFACE
